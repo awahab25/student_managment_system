@@ -10,6 +10,7 @@ import pandas as pd
 from PIL import Image
 import plotly.express as px
 import time
+import hashlib
 
 # --- Page Config ---
 st.set_page_config(
@@ -57,38 +58,21 @@ st.markdown("""
         margin: 10px 0;
     }
     
-    /* Sidebar styling */
-    .css-1d391kg {
-        background-color: #f8f9fa;
-    }
-    
-    .sidebar .sidebar-content {
-        background-color: #f8f9fa;
-    }
-    
-    /* Navigation buttons */
-    .nav-btn {
-        width: 100%;
-        margin: 5px 0;
-        text-align: left;
-        padding: 12px 15px;
-        border-radius: 8px;
-        border: none;
+    .student-card {
         background: white;
-        color: #333;
-        font-weight: 500;
-        transition: all 0.3s ease;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin: 10px 0;
+        border-left: 5px solid #4b4bff;
     }
     
-    .nav-btn:hover {
-        background: #4b4bff;
+    .personal-info {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        transform: translateX(5px);
-    }
-    
-    .nav-btn.active {
-        background: #4b4bff;
-        color: white;
+        padding: 25px;
+        border-radius: 15px;
+        margin: 20px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -100,9 +84,42 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'username' not in st.session_state:
     st.session_state.username = ""
+if 'user_role' not in st.session_state:
+    st.session_state.user_role = ""  # 'student' or 'admin'
+if 'student_id' not in st.session_state:
+    st.session_state.student_id = ""
 
 # --- Initialize Manager ---
 manager = StudentManager("data/students.json")
+
+# --- User Authentication System ---
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# Sample user database (in real app, use proper database)
+USER_DATABASE = {
+    # Students - passwords are their student IDs
+    "s001": {"password": hash_password("s001"), "role": "student", "student_id": "S001"},
+    "s002": {"password": hash_password("s002"), "role": "student", "student_id": "S002"},
+    "s003": {"password": hash_password("s003"), "role": "student", "student_id": "S003"},
+    # Admin
+    "admin": {"password": hash_password("admin123"), "role": "admin", "student_id": None}
+}
+
+def authenticate_user(username, password):
+    """Authenticate user and return user info"""
+    if username in USER_DATABASE:
+        hashed_password = hash_password(password)
+        if USER_DATABASE[username]["password"] == hashed_password:
+            return USER_DATABASE[username]
+    return None
+
+def get_student_by_username(username):
+    """Get student details by username"""
+    if username in USER_DATABASE:
+        student_id = USER_DATABASE[username]["student_id"]
+        return manager.find_by_id(student_id)
+    return None
 
 # --- Logo Loading Function ---
 def load_logo():
@@ -148,9 +165,15 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Show login status
+    # Show login status and user info
     if st.session_state.logged_in:
-        st.success(f"👋 Welcome, {st.session_state.username}!")
+        if st.session_state.user_role == "student":
+            student = get_student_by_username(st.session_state.username)
+            if student:
+                st.success(f"👋 Welcome, {student.name}!")
+                st.info(f"🎓 Grade: {student.grade} | 📚 Student ID: {student.id}")
+        else:
+            st.success(f"👑 Welcome, Admin!")
         st.markdown("---")
     
     # Navigation Menu
@@ -165,8 +188,13 @@ with st.sidebar:
             st.rerun()
     
     with col2:
-        if st.button("👥 Accounts", use_container_width=True):
-            st.session_state.page = "Accounts"
+        if st.button("👤 Profile", use_container_width=True):
+            st.session_state.page = "Profile"
+            st.rerun()
+    
+    if st.session_state.user_role == "admin":
+        if st.button("👥 All Students", use_container_width=True):
+            st.session_state.page = "AllStudents"
             st.rerun()
     
     if st.button("📅 Timetable", use_container_width=True):
@@ -182,6 +210,8 @@ with st.sidebar:
         if st.button("🚪 Logout", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.username = ""
+            st.session_state.user_role = ""
+            st.session_state.student_id = ""
             st.session_state.page = "Home"
             st.success("Logged out successfully!")
             time.sleep(1)
@@ -189,8 +219,8 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Quick Stats (only show when logged in)
-    if st.session_state.logged_in:
+    # Quick Stats (only show for admin)
+    if st.session_state.logged_in and st.session_state.user_role == "admin":
         students = manager.list_students()
         st.markdown("### 📊 Quick Stats")
         st.metric("Total Students", len(students))
@@ -200,7 +230,7 @@ with st.sidebar:
 
 # --- Page Content ---
 def login_page():
-    st.title("🔐 Login")
+    st.title("🔐 Student Login")
     st.markdown("---")
     
     with st.form("login_form"):
@@ -210,10 +240,12 @@ def login_page():
         
         if submit:
             if username and password:
-                # Simple authentication (in real app, use proper auth)
-                if username == "admin" and password == "admin123":
+                user_info = authenticate_user(username, password)
+                if user_info:
                     st.session_state.logged_in = True
                     st.session_state.username = username
+                    st.session_state.user_role = user_info["role"]
+                    st.session_state.student_id = user_info["student_id"]
                     st.session_state.page = "Home"
                     st.success("✅ Login successful!")
                     time.sleep(1)
@@ -224,9 +256,60 @@ def login_page():
                 st.error("❌ Please enter both username and password")
     
     # Demo credentials
-    with st.expander("Demo Credentials"):
-        st.write("**Username:** admin")
-        st.write("**Password:** admin123")
+    with st.expander("📋 Demo Credentials"):
+        st.markdown("""
+        **Students (Login with student ID as both username and password):**
+        - Username: `s001` | Password: `s001`
+        - Username: `s002` | Password: `s002` 
+        - Username: `s003` | Password: `s003`
+        
+        **Admin:**
+        - Username: `admin` | Password: `admin123`
+        """)
+
+def student_dashboard(student):
+    """Display personalized student dashboard"""
+    st.markdown("### 🎯 Your Dashboard")
+    
+    # Personal Info Card
+    st.markdown(f"""
+    <div class="personal-info">
+        <h3>👤 {student.name}</h3>
+        <p><strong>Student ID:</strong> {student.id} | <strong>Grade:</strong> {student.grade}</p>
+        <p><strong>Age:</strong> {student.age} | <strong>GPA:</strong> {student.gpa}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Performance Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("📊 GPA Score", f"{student.gpa}")
+    
+    with col2:
+        st.metric("🎓 Grade", student.grade)
+    
+    with col3:
+        st.metric("📅 Age", student.age)
+    
+    with col4:
+        # GPA status indicator
+        status = "Excellent" if student.gpa >= 90 else "Good" if student.gpa >= 75 else "Needs Improvement"
+        st.metric("📈 Status", status)
+    
+    # Progress Chart
+    st.markdown("### 📊 Your Performance")
+    
+    # Create a simple progress chart for the student
+    fig = px.bar(
+        x=["Your GPA", "Class Average"],
+        y=[student.gpa, 75],  # Assuming class average is 75
+        title="Your GPA vs Class Average",
+        color=["Your GPA", "Class Average"],
+        color_discrete_map={"Your GPA": "#4b4bff", "Class Average": "#ff6b6b"}
+    )
+    fig.update_layout(showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
 
 def home_page():
     # Header with Logo
@@ -239,62 +322,158 @@ def home_page():
     
     with col_title:
         st.title("📚 Learning Management System")
-        st.subheader("Manage your students easily!")
+        if st.session_state.logged_in:
+            if st.session_state.user_role == "student":
+                student = get_student_by_username(st.session_state.username)
+                if student:
+                    st.subheader(f"Welcome back, {student.name}! 👋")
+            else:
+                st.subheader("Admin Dashboard 👑")
+        else:
+            st.subheader("Manage your academic journey!")
     
-    # Welcome message
-    if st.session_state.logged_in:
-        st.success(f"Welcome back, {st.session_state.username}! 👋")
-    else:
-        st.warning("Please login to access all features")
+    if not st.session_state.logged_in:
+        st.warning("🔒 Please login to access your personalized dashboard")
+        return
+    
+    # Show different content based on user role
+    if st.session_state.user_role == "student":
+        student = get_student_by_username(st.session_state.username)
+        if student:
+            student_dashboard(student)
+        else:
+            st.error("Student record not found!")
+    
+    else:  # Admin view
+        admin_dashboard()
+
+def admin_dashboard():
+    """Admin dashboard showing all students"""
+    st.markdown("### 👑 Admin Dashboard")
     
     # Quick Actions
-    st.markdown("### 🚀 Quick Actions")
-    col1, col2, col3, col4 = st.columns(4)
+    st.markdown("#### 🚀 Quick Actions")
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("📋 View Students", use_container_width=True):
-            st.session_state.page = "Accounts"
+        if st.button("📋 View All Students", use_container_width=True):
+            st.session_state.page = "AllStudents"
             st.rerun()
     
     with col2:
-        if st.button("➕ Add Student", use_container_width=True):
-            st.session_state.page = "Accounts"
+        if st.button("➕ Add New Student", use_container_width=True):
+            st.session_state.page = "AllStudents"
             st.rerun()
     
     with col3:
-        if st.button("📅 Timetable", use_container_width=True):
-            st.session_state.page = "Timetable"
-            st.rerun()
-    
-    with col4:
         if st.button("📊 Analytics", use_container_width=True):
-            st.session_state.page = "Accounts"
+            st.session_state.page = "AllStudents"
             st.rerun()
     
-    # Recent Activity/Stats
-    if st.session_state.logged_in:
-        students = manager.list_students()
-        if students:
-            st.markdown("### 📈 Overview")
+    # Statistics
+    students = manager.list_students()
+    if students:
+        st.markdown("### 📈 Overview")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Students", len(students))
+        
+        with col2:
+            avg_age = sum(s.age for s in students) / len(students)
+            st.metric("Average Age", f"{avg_age:.1f}")
+        
+        with col3:
+            avg_gpa = sum(s.gpa for s in students) / len(students)
+            st.metric("Average GPA", f"{avg_gpa:.1f}")
+        
+        with col4:
+            excellent = sum(1 for s in students if s.gpa >= 90)
+            st.metric("Excellent (90+)", excellent)
+        
+        # Recent students
+        st.markdown("### 👥 Recent Students")
+        recent_students = students[-5:]  # Last 5 students
+        for student in recent_students:
+            with st.container():
+                st.markdown(f"""
+                <div class="student-card">
+                    <h4>{student.name}</h4>
+                    <p>ID: {student.id} | Grade: {student.grade} | Age: {student.age} | GPA: {student.gpa}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+def profile_page():
+    if not st.session_state.logged_in:
+        st.warning("🔒 Please login to view your profile")
+        return
+    
+    st.title("👤 Your Profile")
+    st.markdown("---")
+    
+    if st.session_state.user_role == "student":
+        student = get_student_by_username(st.session_state.username)
+        if student:
+            # Display student profile
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                st.markdown(f"""
+                <div style="text-align: center;">
+                    <div style="font-size: 80px; margin-bottom: 20px;">🎓</div>
+                    <h3>{student.name}</h3>
+                    <p><strong>Student ID:</strong> {student.id}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("### 📋 Personal Information")
+                st.write(f"**Full Name:** {student.name}")
+                st.write(f"**Student ID:** {student.id}")
+                st.write(f"**Age:** {student.age}")
+                st.write(f"**Grade:** {student.grade}")
+                st.write(f"**GPA Score:** {student.gpa}")
+                st.write(f"**Notes:** {student.notes if student.notes else 'No notes available'}")
+            
+            # Academic performance
+            st.markdown("### 📊 Academic Performance")
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Total Students", len(students))
+                st.metric("Current GPA", f"{student.gpa}")
             
             with col2:
-                avg_age = sum(s.age for s in students) / len(students)
-                st.metric("Average Age", f"{avg_age:.1f}")
+                # GPA interpretation
+                if student.gpa >= 90:
+                    status = "🎉 Excellent"
+                    color = "green"
+                elif student.gpa >= 75:
+                    status = "👍 Good"
+                    color = "blue"
+                else:
+                    status = "💪 Needs Improvement"
+                    color = "orange"
+                st.metric("Performance", status)
             
             with col3:
-                avg_gpa = sum(s.gpa for s in students) / len(students)
-                st.metric("Average GPA", f"{avg_gpa:.1f}")
+                st.metric("Grade Level", student.grade)
+    
+    else:  # Admin profile
+        st.markdown("""
+        <div style="text-align: center; padding: 40px;">
+            <div style="font-size: 80px; margin-bottom: 20px;">👑</div>
+            <h2>Administrator Account</h2>
+            <p>You have full access to manage all student records and system settings.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-def accounts_page():
-    if not st.session_state.logged_in:
-        st.warning("🔒 Please login to access student accounts")
+def all_students_page():
+    if not st.session_state.logged_in or st.session_state.user_role != "admin":
+        st.error("🔒 Admin access required!")
         return
     
-    st.title("👥 Student Accounts")
+    # Your original student management code here (same as before)
+    st.title("👥 Manage All Students")
     st.markdown("---")
     
     # Add student form
@@ -361,25 +540,6 @@ def accounts_page():
     else:
         df = pd.DataFrame([s.to_dict() for s in students])
         st.dataframe(df, use_container_width=True)
-        
-        # Charts Section
-        st.markdown("---")
-        st.subheader("📊 Student Analytics")
-        
-        if not df.empty:
-            chart_col1, chart_col2 = st.columns(2)
-            
-            with chart_col1:
-                fig_gpa = px.bar(df, x="name", y="gpa", color="grade", 
-                                title="Student GPA Distribution", 
-                                color_discrete_sequence=px.colors.qualitative.Bold)
-                fig_gpa.update_layout(xaxis_title="Student Name", yaxis_title="GPA Score")
-                st.plotly_chart(fig_gpa, use_container_width=True)
-            
-            with chart_col2:
-                fig_age = px.pie(df, names="grade", title="Students by Grade Level",
-                               color_discrete_sequence=px.colors.qualitative.Set3)
-                st.plotly_chart(fig_age, use_container_width=True)
 
     # Update / Delete Section
     st.markdown("---")
@@ -431,8 +591,6 @@ def accounts_page():
                             st.rerun()
                         else:
                             st.error("❌ Delete failed.")
-    else:
-        st.info("No students available. Add some students to enable editing.")
 
 def timetable_page():
     if not st.session_state.logged_in:
@@ -441,6 +599,12 @@ def timetable_page():
     
     st.title("📅 Class Timetable")
     st.markdown("---")
+    
+    # Personalized timetable based on grade
+    if st.session_state.user_role == "student":
+        student = get_student_by_username(st.session_state.username)
+        if student:
+            st.info(f"📚 Your Timetable for Grade {student.grade}")
     
     # Sample timetable data
     timetable_data = {
@@ -454,14 +618,6 @@ def timetable_page():
     
     df_timetable = pd.DataFrame(timetable_data)
     st.dataframe(df_timetable, use_container_width=True)
-    
-    # Add timetable management
-    with st.expander("🔄 Manage Timetable"):
-        st.write("Add timetable management functionality here")
-        new_class = st.text_input("Add new class")
-        if st.button("Add Class"):
-            if new_class:
-                st.success(f"Added {new_class} to timetable")
 
 # --- Main App Logic ---
 def main():
@@ -470,8 +626,10 @@ def main():
         login_page()
     elif st.session_state.page == "Home":
         home_page()
-    elif st.session_state.page == "Accounts":
-        accounts_page()
+    elif st.session_state.page == "Profile":
+        profile_page()
+    elif st.session_state.page == "AllStudents":
+        all_students_page()
     elif st.session_state.page == "Timetable":
         timetable_page()
 
